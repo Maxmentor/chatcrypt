@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>CRYPT - Secure Chat</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+    <style>
+        :root { 
+            --primary: #1f2c33; --secondary: #00a884; --bg: #0b141a; 
+            --msg-in: #202c33; --msg-out: #005c4b; --text: #e9edef;
+            --header-text: #d1d7db; --input-bg: #202c33; --border: #2f3b44;
+        }
+
+        body.light-mode {
+            --primary: #075e54; --secondary: #128c7e; --bg: #e5ddd5; 
+            --msg-in: #ffffff; --msg-out: #dcf8c6; --text: #000000;
+            --header-text: #ffffff; --input-bg: #f0f0f0; --border: #ddd;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+        html, body { height: 100%; width: 100%; overflow: hidden; background: #121b22; transition: 0.3s; }
+        body { display: flex; justify-content: center; align-items: center; }
+
+        #login-screen { 
+            background: white; padding: 30px; border-radius: 15px; width: 90%; max-width: 380px; 
+            text-align: center; box-shadow: 0 10px 25px rgba(0,0,0,0.3); z-index: 1000;
+        }
+        body:not(.light-mode) #login-screen { background: #233138; color: white; }
+        #login-screen h2 { margin-bottom: 20px; color: var(--secondary); }
+        #login-screen input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ccc; border-radius: 8px; outline: none; background: #fff; color: #000; }
+        #login-screen button { width: 100%; padding: 12px; background: var(--secondary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+
+        #chat-container { 
+            display: none; width: 100%; max-width: 500px; background: var(--bg); 
+            flex-direction: column; height: 100dvh; position: fixed; top: 0;
+        }
+
+        header { 
+            background: var(--primary); color: var(--header-text); 
+            padding: 10px 15px; padding-top: calc(10px + env(safe-area-inset-top)); 
+            display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
+        }
+        
+        #message-area { 
+            flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; 
+            background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
+        }
+        body:not(.light-mode) #message-area { background-color: #0b141a; background-blend-mode: overlay; opacity: 0.9; }
+
+        .msg { max-width: 85%; padding: 8px 12px; border-radius: 10px; font-size: 15px; box-shadow: 0 1px 2px rgba(0,0,0,0.2); color: var(--text); position: relative; }
+        .sent { align-self: flex-end; background: var(--msg-out); border-top-right-radius: 0; }
+        .received { align-self: flex-start; background: var(--msg-in); border-top-left-radius: 0; }
+        .sender-name { font-size: 11px; font-weight: bold; color: #00a884; display: block; margin-bottom: 3px; }
+        .system-msg { align-self: center; background: var(--border); padding: 5px 12px; border-radius: 8px; font-size: 12px; color: var(--text); margin: 5px 0; }
+
+        .input-bar { 
+            background: var(--input-bg); padding: 10px 15px; 
+            padding-bottom: calc(10px + env(safe-area-inset-bottom)); 
+            display: flex; gap: 10px; align-items: center; border-top: 1px solid var(--border);
+        }
+
+        #msg-input { flex: 1; border-radius: 25px; border: none; padding: 12px 18px; outline: none; font-size: 16px; background: var(--msg-in); color: var(--text); }
+        .send-btn { width: 45px; height: 45px; border-radius: 50%; background: var(--secondary); color: white; border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div id="login-screen">
+    <h2>Secure Chat</h2>
+    <input type="text" id="username" placeholder="Your Name" autocomplete="off">
+    <input type="text" id="channel" placeholder="Channel Name" autocomplete="off">
+    <input type="password" id="password" placeholder="Channel Password" autocomplete="off">
+    <button onclick="enterChat()">START CHATTING</button>
+</div>
+
+<div id="chat-container">
+    <header>
+        <span id="header-title">Room</span>
+        <div style="display:flex; gap:10px;">
+            <button onclick="document.body.classList.toggle('light-mode')" style="background:none; border:none; font-size:20px; cursor:pointer;">🌓</button>
+            <button onclick="exitChat()" style="background:#d32f2f; color:white; border:none; padding:6px 12px; border-radius:5px; font-weight:bold;">Exit</button>
+        </div>
+    </header>
+    
+    <div id="message-area"></div>
+    
+    <div id="typing-ui" style="padding: 5px 20px; font-size: 12px; color: var(--secondary); display: none;">
+        <span id="typer-name"></span> typing...
+    </div>
+
+    <div class="input-bar">
+        <input type="file" id="img-input" accept="image/*" style="display:none" onchange="sendImage(this)">
+        <span onclick="document.getElementById('img-input').click()" style="cursor:pointer; font-size:24px; color:var(--secondary);">📷</span>
+        <input type="text" id="msg-input" placeholder="Type a message..." oninput="isTyping()" autocomplete="off">
+        <button class="send-btn" onclick="sendText()">➤</button>
+    </div>
+</div>
+
+<script>
+    // 👇 Yahan par apne naye Firebase project ki details paste karein
+    const firebaseConfig = {
+        /* CODE PASTE HERE */
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    let user, roomPath;
+
+    function enterChat() {
+        user = document.getElementById('username').value.trim();
+        const ch = document.getElementById('channel').value.trim();
+        const ps = document.getElementById('password').value.trim();
+        if(!user || !ch || !ps) return alert("Fill all fields!");
+
+        roomPath = `rooms/${ch}_${ps}`;
+        document.getElementById('login-screen').style.display = 'none';
+        document.getElementById('chat-container').style.display = 'flex';
+        document.getElementById('header-title').innerText = ch;
+
+        db.ref(roomPath + '/messages').push({ sender: 'System', body: `@${user} joined the chat`, type: 'system' });
+        
+        db.ref(roomPath + '/messages').on('child_added', (snap) => renderMsg(snap.val()));
+        db.ref(roomPath + '/typing').on('value', (snap) => {
+            const t = snap.val() || {};
+            const others = Object.keys(t).filter(u => u !== user);
+            document.getElementById('typing-ui').style.display = others.length > 0 ? 'block' : 'none';
+            if(others.length > 0) document.getElementById('typer-name').innerText = others[0];
+        });
+        db.ref(roomPath + '/status').on('value', (s) => { if(s.val()===null) location.reload(); });
+        db.ref(roomPath + '/status').set('active');
+    }
+
+    function renderMsg(data) {
+        const area = document.getElementById('message-area');
+        const div = document.createElement('div');
+        
+        if(data.type === 'system') {
+            div.className = 'system-msg';
+            div.innerText = data.body;
+        } else {
+            div.className = `msg ${data.sender === user ? 'sent' : 'received'}`;
+            let nameHTML = data.sender === user ? '' : `<span class="sender-name">${data.sender}</span>`;
+            div.innerHTML = nameHTML + (data.type === 'image' ? `<img src="${data.body}" style="max-width:100%; border-radius:5px; margin-top:5px;">` : `<span>${data.body}</span>`);
+        }
+        area.appendChild(div);
+        area.scrollTop = area.scrollHeight;
+    }
+
+    function sendText() {
+        const input = document.getElementById('msg-input');
+        if(!input.value.trim()) return;
+        db.ref(roomPath + '/messages').push({ sender: user, body: input.value, type: 'text' });
+        input.value = ""; input.focus();
+        db.ref(roomPath + '/typing/' + user).remove();
+    }
+
+    function sendImage(input) {
+        const file = input.files[0];
+        if(!file || file.size > 800000) return alert("Image too big!");
+        const reader = new FileReader();
+        reader.onload = (e) => db.ref(roomPath + '/messages').push({ sender: user, body: e.target.result, type: 'image' });
+        reader.readAsDataURL(file);
+    }
+
+    function isTyping() {
+        if(document.getElementById('msg-input').value.length > 0) {
+            db.ref(roomPath + '/typing/' + user).set(true);
+            clearTimeout(window.t);
+            window.t = setTimeout(() => db.ref(roomPath + '/typing/' + user).remove(), 2000);
+        }
+    }
+
+    async function exitChat() {
+        if(confirm("Are you sure you want to leave and wipe data?")) {
+            await db.ref(roomPath + '/messages').push({ sender: 'System', body: `@${user} left the chat`, type: 'system' });
+            setTimeout(() => { db.ref(roomPath).remove(); }, 500);
+        }
+    }
+
+    window.onbeforeunload = () => { if(roomPath) db.ref(roomPath).remove(); };
+</script>
+
+</body>
+</html>
